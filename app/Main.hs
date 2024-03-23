@@ -30,7 +30,6 @@ main = do
   case command of
     "decode" -> do
       -- You can use print statements as follows for debugging, they'll be visible when running tests.
-      putStrLn "Logs from your program will appear here!"
       let encodedValue = args !! 1
       let decodedValue = decodeBencodedValue (B.pack encodedValue)
       let jsonValue = encode (B.unpack decodedValue)
