@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+import Data.List
 import Data.Semigroup ((<>))
 import Data.Void (Void)
 import Options.Applicative ((<**>))
@@ -14,23 +15,27 @@ type Parser = Parsec Void String
 data Bencode
   = BInt Integer
   | BString String
+  | BList [Bencode]
   deriving (Show, Eq)
+
+data Options = Options
+  { comArg :: String,
+    contentArg :: String
+  }
 
 bInt :: Parser Bencode
 bInt = BInt <$> (char 'i' *> L.signed space L.decimal <* char 'e')
-
-bencode :: Parser Bencode
-bencode = try bInt <|> bString -- Note the use of 'try'
 
 bString :: Parser Bencode
 bString = do
   len <- L.decimal <* char ':'
   BString <$> count len anySingle
 
-data Options = Options
-  { comArg :: String,
-    contentArg :: String
-  }
+bList :: Parser Bencode
+bList = BList <$> (char 'l' *> many bencode <* char 'e')
+
+bencode :: Parser Bencode
+bencode = try bInt <|> bString <|> bList
 
 -- Define the command line parser for `Options`
 optionsParser :: CP.Parser Options
@@ -57,9 +62,13 @@ parserInfo =
         <> CP.header "decoder - a command line decoder tool"
     )
 
-extractContent :: Bencode -> IO ()
-extractContent (BInt n) = print n -- Print integer directly
-extractContent (BString s) = print s -- Use `print` to handle string, including quotes
+printContent :: Bencode -> IO ()
+printContent bencode = putStrLn $ formatBencode bencode
+
+formatBencode :: Bencode -> String
+formatBencode (BInt n) = show n
+formatBencode (BString s) = "\"" ++ s ++ "\""
+formatBencode (BList list) = "[" ++ intercalate ", " (map formatBencode list) ++ "]"
 
 main :: IO ()
 main = do
@@ -69,5 +78,5 @@ main = do
   case com of
     "decode" -> case parse bencode "" content of
       Left bundle -> putStrLn $ "Error decoding content: " ++ errorBundlePretty bundle
-      Right bencodedData -> extractContent bencodedData
+      Right bencodedData -> printContent bencodedData
     _ -> putStrLn "Unrecognized command."
