@@ -1,38 +1,73 @@
-{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-import Data.Aeson
-import Data.ByteString.Char8 (ByteString)
-import qualified Data.ByteString.Char8 as B
-import qualified Data.ByteString.Lazy as LB
-import Data.Char (isDigit)
-import System.Environment
-import System.Exit
+import Data.Semigroup ((<>))
+import Data.Void (Void)
+import Options.Applicative ((<**>))
+import qualified Options.Applicative as CP
+import Text.Megaparsec
+import qualified Text.Megaparsec as MP
+import Text.Megaparsec.Char
+import qualified Text.Megaparsec.Char.Lexer as L
 
-decodeBencodedValue :: ByteString -> ByteString
-decodeBencodedValue encodedValue
-  | isDigit (B.head encodedValue) =
-      case B.elemIndex ':' encodedValue of
-        Just colonIndex -> B.drop (colonIndex + 1) encodedValue
-        Nothing -> error "Invalid encoded value"
-  | otherwise = error $ "Unhandled encoded value: " ++ B.unpack encodedValue
+type Parser = Parsec Void String
+
+data Bencode
+  = BInt Integer
+  | BString String
+  deriving (Show, Eq)
+
+bInt :: Parser Bencode
+bInt = BInt <$> (char 'i' *> L.signed space L.decimal <* char 'e')
+
+bencode :: Parser Bencode
+bencode = try bInt <|> bString -- Note the use of 'try'
+
+bString :: Parser Bencode
+bString = do
+  len <- L.decimal <* char ':'
+  BString <$> count len anySingle
+
+data Options = Options
+  { comArg :: String,
+    contentArg :: String
+  }
+
+-- Define the command line parser for `Options`
+optionsParser :: CP.Parser Options
+optionsParser =
+  Options
+    <$> CP.argument
+      CP.str
+      ( CP.metavar "COMMAND"
+          <> CP.help "Decode command"
+      )
+    <*> CP.argument
+      CP.str
+      ( CP.metavar "CONTENT"
+          <> CP.help "Content to decode"
+      )
+
+-- Info for the command line parser
+parserInfo :: CP.ParserInfo Options
+parserInfo =
+  CP.info
+    (optionsParser <**> CP.helper)
+    ( CP.fullDesc
+        <> CP.progDesc "Decode CONTENT based on the provided options"
+        <> CP.header "decoder - a command line decoder tool"
+    )
+
+extractContent :: Bencode -> IO ()
+extractContent (BInt n) = print n -- Print integer directly
+extractContent (BString s) = print s -- Use `print` to handle string, including quotes
 
 main :: IO ()
 main = do
-  args <- getArgs
-  if length args < 2
-    then do
-      putStrLn "Usage: your_bittorrent.sh <command> <args>"
-      exitWith (ExitFailure 1)
-    else return ()
-
-  let command = head args
-  case command of
-    "decode" -> do
-      -- You can use print statements as follows for debugging, they'll be visible when running tests.
-      let encodedValue = args !! 1
-      let decodedValue = decodeBencodedValue (B.pack encodedValue)
-      let jsonValue = encode (B.unpack decodedValue)
-      LB.putStr jsonValue
-      putStr "\n"
-    _ -> putStrLn $ "Unknown command: " ++ command
+  opts <- CP.execParser parserInfo
+  let com = comArg opts
+  let content = contentArg opts
+  case com of
+    "decode" -> case parse bencode "" content of
+      Left bundle -> putStrLn $ "Error decoding content: " ++ errorBundlePretty bundle
+      Right bencodedData -> extractContent bencodedData
+    _ -> putStrLn "Unrecognized command."
