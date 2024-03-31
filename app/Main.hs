@@ -2,6 +2,7 @@
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
+import Data.Char (ord)
 import Data.List
 import Data.Semigroup ((<>))
 import Data.Void (Void)
@@ -12,6 +13,14 @@ import Text.Megaparsec
 import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
+
+-- Convert ByteString to String
+convertToString :: BSC.ByteString -> String
+convertToString = BSC.unpack
+
+-- Convert String to ByteString
+convertToByteString :: String -> BSC.ByteString
+convertToByteString = BSC.pack
 
 parseInfoFile :: String -> IO ()
 parseInfoFile fileName = do
@@ -26,8 +35,10 @@ extractAndPrintInfo (BDictionary dict) = do
   let maybeAnnounce = lookup "announce" dict >>= extractString
   let maybeInfo = lookup "info" dict >>= extractDict
   let maybeLength = maybeInfo >>= lookup "length" >>= extractInt
+  let maybeInfoHash = lookup "pieces" dict >>= extractString
   putStrLn $ "Tracker URL: " ++ maybe "<not found>" id maybeAnnounce
   putStrLn $ "Length: " ++ maybe "<not found>" show maybeLength
+  putStrLn $ "Hash: " ++ maybe "<not found>" show maybeInfoHash
   where
     extractString (BString s) = Just s
     extractString _ = Nothing
@@ -58,7 +69,8 @@ bInt = BInt <$> (char 'i' *> L.signed space L.decimal <* char 'e')
 bString :: Parser Bencode
 bString = do
   len <- L.decimal <* char ':'
-  BString <$> count len anySingle
+  content <- count len anySingle -- Directly captures binary data without interpretation
+  return $ BString content
 
 bList :: Parser Bencode
 bList = BList <$> (char 'l' *> many bencode <* char 'e')
