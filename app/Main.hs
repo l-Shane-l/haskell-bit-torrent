@@ -16,6 +16,7 @@ data Bencode
   = BInt Integer
   | BString String
   | BList [Bencode]
+  | BDictionary [(String, Bencode)]
   deriving (Show, Eq)
 
 data Options = Options
@@ -34,8 +35,18 @@ bString = do
 bList :: Parser Bencode
 bList = BList <$> (char 'l' *> many bencode <* char 'e')
 
+bDictionary :: Parser Bencode
+bDictionary = BDictionary <$> (char 'd' *> many pair <* char 'e')
+  where
+    pair = do
+      key <- bString
+      value <- bencode
+      case key of
+        BString s -> return (s, value)
+        _ -> fail "Dictionary keys must be bencoded strings."
+
 bencode :: Parser Bencode
-bencode = try bInt <|> bString <|> bList
+bencode = try bInt <|> bString <|> bList <|> bDictionary
 
 -- Define the command line parser for `Options`
 optionsParser :: CP.Parser Options
@@ -69,6 +80,9 @@ formatBencode :: Bencode -> String
 formatBencode (BInt n) = show n
 formatBencode (BString s) = "\"" ++ s ++ "\""
 formatBencode (BList list) = "[" ++ intercalate ", " (map formatBencode list) ++ "]"
+formatBencode (BDictionary dict) = "{" ++ intercalate ", " (map formatPair dict) ++ "}"
+  where
+    formatPair (k, v) = "\"" ++ k ++ "\": " ++ formatBencode v
 
 main :: IO ()
 main = do
