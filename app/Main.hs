@@ -1,14 +1,42 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import Data.List
 import Data.Semigroup ((<>))
 import Data.Void (Void)
 import Options.Applicative ((<**>))
 import qualified Options.Applicative as CP
+import System.IO (readFile)
 import Text.Megaparsec
 import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
+
+parseInfoFile :: String -> IO ()
+parseInfoFile fileName = do
+  content <- BS.readFile fileName
+  let contentStr = BSC.unpack content -- Convert ByteString to String
+  case parse bencode "" contentStr of
+    Left bundle -> putStrLn $ "Error parsing file: " ++ errorBundlePretty bundle
+    Right bencodedData -> extractAndPrintInfo bencodedData
+
+extractAndPrintInfo :: Bencode -> IO ()
+extractAndPrintInfo (BDictionary dict) = do
+  let maybeAnnounce = lookup "announce" dict >>= extractString
+  let maybeInfo = lookup "info" dict >>= extractDict
+  let maybeLength = maybeInfo >>= lookup "length" >>= extractInt
+  putStrLn $ "Tracker URL: " ++ maybe "<not found>" id maybeAnnounce
+  putStrLn $ "Length: " ++ maybe "<not found>" show maybeLength
+  where
+    extractString (BString s) = Just s
+    extractString _ = Nothing
+
+    extractInt (BInt n) = Just n
+    extractInt _ = Nothing
+
+    extractDict (BDictionary d) = Just d
+    extractDict _ = Nothing
 
 type Parser = Parsec Void String
 
@@ -90,6 +118,7 @@ main = do
   let com = comArg opts
   let content = contentArg opts
   case com of
+    "info" -> parseInfoFile content
     "decode" -> case parse bencode "" content of
       Left bundle -> putStrLn $ "Error decoding content: " ++ errorBundlePretty bundle
       Right bencodedData -> printContent bencodedData
